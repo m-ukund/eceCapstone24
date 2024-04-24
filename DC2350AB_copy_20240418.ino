@@ -252,7 +252,11 @@ void loop()
 {
   if(faultOut==true)
   {
-    DigitalWrite()
+    digitalWrite(Fout, HIGH);
+  }
+  else
+  {
+    digitalWrite(Fout, LOW);
   }
   //bool flipflop = true;
   int8_t error = 0;
@@ -414,6 +418,7 @@ void loop()
     else if (user_command==3)
     {
       demo_loop(DATALOG_DISABLED);
+      //if(faultOut==true)
       
     
     } 
@@ -635,6 +640,19 @@ void demo_loop(uint8_t datalog_en)
 
   Serial3.println(F("Transmit 'm' to quit"));
   
+  if(faultOut == true){
+    faultOut = !selfTest();
+      if(faultOut == true)
+      {
+        digitalWrite(Fout, HIGH);
+        //break;
+      }
+      else
+      {
+        digitalWrite(Fout, LOW);
+      }
+  }
+
   while (input != 'm' && faultOut == false)
   {
      if (Serial3.available() > 0)
