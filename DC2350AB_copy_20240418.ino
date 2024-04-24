@@ -91,6 +91,7 @@ In this sketch book:
 // Define the pin configurations for STM32F103C8T6
 #define CS_PIN PB6  // Chip Select pin 1. Used for LTC6820
 #define CS2_L PB7  // Chip Select pin 2. Used for EEPROM
+#define Fout PB9 // fault out on stm board
 #define MOSI PA7  // Master Out Slave In (MOSI) pin
 #define MISO PA6  // Master In Slave Out (MISO) pin
 #define SCK PA5  // Serial Clock (SCK) pin
@@ -177,12 +178,24 @@ const uint8_t PRINT_PEC = DISABLED; //!< This is to ENABLED or DISABLED printing
  ******************************************************/
 cell_asic BMS_IC[TOTAL_IC]; //!< Global Battery Variable
 
+/******************************************************
+Fault in and Fault out variables. 
+These variables store the state of faults from the
+shutdown circuit and the BMS. FaultIn comes from the
+shutdown circuit, faultOut is triggered if there is a 
+BMS fault
+******************************************************/
+bool faultIn=false;
+bool faultOut=false;
+//uint32_t counter = 360000000; // number of ticks to get to 5 seconds
+
+
 /*************************************************************************
  Set configuration register. Refer to the data sheet
 **************************************************************************/
 bool REFON = true; //!< Reference Powered Up Bit
 bool ADCOPT = false; //!< ADC Mode option bit
-bool GPIOBITS_A[5] = {false,false,true,true,true}; //!< GPIO Pin Control // Gpio 1,2,3,4,5
+bool GPIOBITS_A[5] = {true,false,false,true,true}; //!< GPIO Pin Control // Gpio 1,2,3,4,5
 bool GPIOBITS_B[4] = {false,false,false,false}; //!< GPIO Pin Control // Gpio 6,7,8,9
 uint16_t UV=UV_THRESHOLD; //!< Under voltage Comparison Voltage
 uint16_t OV=OV_THRESHOLD; //!< Over voltage Comparison Voltage
@@ -193,6 +206,7 @@ bool DCTOBITS[4] = {true,false,true,false}; //!< Discharge time value //Dcto 0,1
 bool FDRF = false; //!< Force Digital Redundancy Failure Bit
 bool DTMEN = true; //!< Enable Discharge Timer Monitor
 bool PSBITS[2]= {false,false}; //!< Digital Redundancy Path Selection//ps-0,1
+uint16_t tolerance = 500; // 50 mV tolerance. divide by 10000 to get actual voltage
 
 /*!**********************************************************************
  \brief  Initializes hardware and variables
@@ -213,6 +227,8 @@ void setup()
   pinMode(MOSI, OUTPUT);
   pinMode(MISO, INPUT);
   pinMode(SCK, OUTPUT);
+  pinMode(Fout, OUTPUT);
+
 
   SPI.beginTransaction(SPISettings(SPI_SPEED, MSBFIRST, SPI_MODE0));
 
@@ -234,22 +250,25 @@ void setup()
 ***********************************************************************/
 void loop()
 {
+  if(faultOut==true)
+  {
+    DigitalWrite()
+  }
+  //bool flipflop = true;
   int8_t error = 0;
   if (Serial3.available()>0)           // Check for user input
   {
     uint32_t user_command;
-    
-    user_command = Serial3.read();      // Read the user command
-    if(user_command=='m')
+
+    user_command = Serial3.read()-48;      // Read the user command
+    //Serial3.println((user_command));
+
+    if(user_command==61) //m
     { 
       print_menu();
     }
-    else if(user_command=='1')
+    else if(user_command==1)
     {
-         
-      //Serial3.println(user_command);
-
-      Serial3.println("JACKASS");
       wakeup_idle(TOTAL_IC);
       LTC6813_wrcfg(TOTAL_IC,BMS_IC);
       LTC6813_wrcfgb(TOTAL_IC,BMS_IC);
@@ -264,7 +283,41 @@ void loop()
       print_rxconfig();
       print_rxconfigb();
     }
-    else if(user_command=='2')
+    else if(user_command==4)
+    {
+      wakeup_idle(TOTAL_IC);
+      LTC6813_wrcfg(TOTAL_IC,BMS_IC);
+      LTC6813_wrcfgb(TOTAL_IC,BMS_IC);
+      print_wrconfig();
+      print_wrconfigb();
+
+      wakeup_idle(TOTAL_IC);
+      error = LTC6813_rdcfg(TOTAL_IC,BMS_IC);
+      check_error(error);
+      error = LTC6813_rdcfgb(TOTAL_IC,BMS_IC); 
+      check_error(error);
+      print_rxconfig();
+      print_rxconfigb();
+
+      Serial3.println("------------------------------------------------------");
+      LTC6813_clear_cell_test(1, 1, BMS_IC);
+      LTC6813_clear_cell_test(9, 1, BMS_IC);
+      LTC6813_clear_cell_test(13, 1, BMS_IC);
+
+      LTC6813_clear_cell_test(17, 1,  BMS_IC);
+      LTC6813_clear_cell_test(18, 1,  BMS_IC);
+
+      Serial3.println("-------------------------------------------------------");
+      uint8_t numval = 0b00000101; // 5
+      numval &= ~(1<<(2-1)); // shouldnt change
+      numval &= ~(1<<(3-1)); // should become 001
+
+      Serial3.println(numval);
+
+
+
+    }
+    else if(user_command==2)
     {
       wakeup_idle(TOTAL_IC);
       LTC6813_adcv(ADC_CONVERSION_MODE, ADC_DCP, CELL_CH_TO_CONVERT);
@@ -357,46 +410,109 @@ void loop()
 
       //demo_loop(DATALOG_DISABLED);
     }
+    // run loop
+    else if (user_command==3)
+    {
+      demo_loop(DATALOG_DISABLED);
+      
+    
+    } 
+    else if (user_command ==5)
+    {
+      wakeup_sleep(TOTAL_IC);
+      wakeup_idle(TOTAL_IC);
+      LTC6813_wrcfg(TOTAL_IC,BMS_IC);
+      LTC6813_wrcfgb(TOTAL_IC,BMS_IC);
+      print_wrconfig();
+      print_wrconfigb();
 
-  }
-  else 
-  { 
-      //Serial3.println(user_command);
-      //run_command(user_command);
-      //Serial3.println("Waiting for command...");
-      delay(1000); 
-  }
-}
+      wakeup_idle(TOTAL_IC);
+      error = LTC6813_rdcfg(TOTAL_IC,BMS_IC);
+      check_error(error);
+      error = LTC6813_rdcfgb(TOTAL_IC,BMS_IC); 
+      check_error(error);
+      print_rxconfig();
+      print_rxconfigb();
 
-/*!*****************************************
-  \brief executes the user command
-    @return void
-*******************************************/
-void demo_loop(uint8_t datalog_en)
-{
-  int8_t error = 0;
-  char input = 0;
+      Serial3.println("------------------------------------------------------");
+      wakeup_idle(TOTAL_IC);
+      LTC6813_adcv(ADC_CONVERSION_MODE, ADC_DCP, CELL_CH_TO_CONVERT);
+      LTC6813_pollAdc();
+      wakeup_idle(TOTAL_IC);
+      error = LTC6813_rdcv(0, TOTAL_IC, BMS_IC);
+      check_error(error);
+      print_cells(DATALOG_DISABLED);
+
+      Serial3.println("------------------------------------------------------");
+      int8_t num;
+      num = dischargeAlgo();
+      if(num==-1){Serial3.println("Error in discharge algorithm");}
+      delay(5000);
+      wakeup_sleep(TOTAL_IC);
+      LTC6813_clear_discharge(TOTAL_IC,BMS_IC);
+      LTC6813_wrcfg(TOTAL_IC,BMS_IC);
+      LTC6813_wrcfgb(TOTAL_IC,BMS_IC);
+      //print_wrconfig();
+      //print_wrconfigb();
+      wakeup_idle(TOTAL_IC);
+      error = LTC6813_rdcfg(TOTAL_IC,BMS_IC);
+      check_error(error);
+      error = LTC6813_rdcfgb(TOTAL_IC,BMS_IC);
+      check_error(error);
+    }
+    else if (user_command ==6)
+    {
+      wakeup_sleep(TOTAL_IC);
+      LTC6813_set_discharge(3,TOTAL_IC,BMS_IC);
+      LTC6813_set_discharge(6,TOTAL_IC,BMS_IC);
+      LTC6813_wrcfg(TOTAL_IC,BMS_IC);
+      LTC6813_wrcfgb(TOTAL_IC,BMS_IC);
+      //print_wrconfig();
+      //print_wrconfigb();
+      wakeup_idle(TOTAL_IC);
+      error = LTC6813_rdcfg(TOTAL_IC,BMS_IC);
+      check_error(error);
+      error = LTC6813_rdcfgb(TOTAL_IC,BMS_IC);
+      check_error(error);
+      //print_rxconfig();
+      //print_rxconfigb();
+    
+      delay(5000);
+      // Clear all discharge transistors
+      wakeup_sleep(TOTAL_IC);
+      LTC6813_clear_discharge(TOTAL_IC,BMS_IC);
+      LTC6813_wrcfg(TOTAL_IC,BMS_IC);
+      LTC6813_wrcfgb(TOTAL_IC,BMS_IC);
+      //print_wrconfig();
+      //print_wrconfigb();
+      wakeup_idle(TOTAL_IC);
+      error = LTC6813_rdcfg(TOTAL_IC,BMS_IC);
+      check_error(error);
+      error = LTC6813_rdcfgb(TOTAL_IC,BMS_IC);
+      check_error(error);
+    }
+    else if (user_command == 7)
+    {
+      char input = 0;
+      uint32_t ticker = 0;
+
+      Serial3.println(F("Transmit 'm' to quit"));
   
-  Serial3.println(F("Transmit 'm' to quit"));
-  
-  while (input != 'm')
-  {
-     if (Serial3.available() > 0)
+      while (input != 'm' && faultOut == false)
       {
-        input = Serial3.read();
-      } 
-  
-      //if (WRITE_CONFIG == ENABLED)
-      //{
+      if (Serial3.available() > 0)
+        {
+          input = Serial3.read();
+        } 
+        uint32_t conv_time = 0;
+
+      
         wakeup_idle(TOTAL_IC);
         LTC6813_wrcfg(TOTAL_IC,BMS_IC);
         LTC6813_wrcfgb(TOTAL_IC,BMS_IC);
         print_wrconfig();
         print_wrconfigb();
-      //}
-    
-      //if (READ_CONFIG == ENABLED)
-      //{
+
         wakeup_idle(TOTAL_IC);
         error = LTC6813_rdcfg(TOTAL_IC,BMS_IC);
         check_error(error);
@@ -404,6 +520,172 @@ void demo_loop(uint8_t datalog_en)
         check_error(error);
         print_rxconfig();
         print_rxconfigb();
+      
+        //write_temp_mux(8);
+        wakeup_idle(TOTAL_IC);
+        LTC6813_adax(ADC_CONVERSION_MODE , AUX_CH_ALL);
+        conv_time = LTC6813_pollAdc();
+        print_conv_time(conv_time);
+        wakeup_idle(TOTAL_IC);
+        error = LTC6813_rdaux(0,TOTAL_IC,BMS_IC); // Set to read back all aux registers
+
+        //check_error(error);
+        print_aux(DATALOG_DISABLED);
+        Serial3.println(BMS_IC[0].aux.a_codes[0]*0.0001,4);
+        Serial3.print("Celcius: ");
+        Serial3.println(resistanceToTemperature(BMS_IC[0].aux.a_codes[0]));
+
+        delay(1000);
+      }
+    }
+    else if (user_command == 8)
+    {
+       wakeup_idle(TOTAL_IC);
+      LTC6813_wrcfg(TOTAL_IC,BMS_IC);
+      LTC6813_wrcfgb(TOTAL_IC,BMS_IC);
+      print_wrconfig();
+      print_wrconfigb();
+
+      wakeup_idle(TOTAL_IC);
+      error = LTC6813_rdcfg(TOTAL_IC,BMS_IC);
+      check_error(error);
+      error = LTC6813_rdcfgb(TOTAL_IC,BMS_IC); 
+      check_error(error);
+      print_rxconfig();
+      print_rxconfigb();
+      //Serial3.println(flipflop);
+
+      write_temp_mux(8, true);
+      //flipflop = !flipflop;
+    }
+    else if (user_command == 9)
+    {
+      wakeup_idle(TOTAL_IC);
+      LTC6813_wrcfg(TOTAL_IC,BMS_IC);
+      LTC6813_wrcfgb(TOTAL_IC,BMS_IC);
+      print_wrconfig();
+      print_wrconfigb();
+
+      wakeup_idle(TOTAL_IC);
+      error = LTC6813_rdcfg(TOTAL_IC,BMS_IC);
+      check_error(error);
+      error = LTC6813_rdcfgb(TOTAL_IC,BMS_IC); 
+      check_error(error);
+      print_rxconfig();
+      print_rxconfigb();
+
+      //Serial3.println(flipflop);
+
+      write_temp_mux(18, false);
+      //flipflop = !flipflop;
+
+      
+      
+    }
+  }
+  else 
+  { 
+      //Serial3.println(user_command);
+      //run_command(user_command);
+      //Serial3.println("Waiting for command...");
+    //delay(1000); 
+  }
+}
+
+// TODOODODODDO:: discharge algo
+
+/*
+task 1: fix clear discharge bits algorithm
+task 2: find way to read current discharge bit status
+task 3: compare cell voltage to UV, then to OV, then to min
+  - if less than UV+tolerance --> clear all discharge, trigger faultOut, exit algo --> done (kinda)
+  - if greater than min+tolerance --> check discharge bit. if not on, turn on 
+  - if greater than OV-tolerance --> turn on discharge bit
+
+  - should mute between all voltage measurements
+  - if cell is min, skip
+  - if discharge bit is on and cell is less than min+tolerance --> turn off
+  min-tolerance should be greater than UV+tolerance. if not, then clear all discharge bits, trigger faultOut, exit algo
+*/
+// Steinhart-Hart coefficients
+const double A = 0.001129148;
+const double B = 0.000234125;
+const double C = 0.0000000876741;
+
+// Function to convert resistance to temperature using Steinhart-Hart equation
+double resistanceToTemperature(uint16_t voltage) {
+
+
+    double resistance = (double(voltage)*0.0001*5000)/(5-double(voltage)*0.0001);
+    double lnR = log(resistance);
+    double kelvin = 1 / (A + B * lnR + C * pow(lnR, 3));
+    return (kelvin - 273.15); // Convert Kelvin to Celsius
+}
+
+
+/*!*****************************************
+  \brief executes the demo loop
+    @return void
+*******************************************/
+void demo_loop(uint8_t datalog_en)
+{
+  int8_t error = 0;
+  char input = 0;
+  uint32_t ticker = 0;
+
+  Serial3.println(F("Transmit 'm' to quit"));
+  
+  while (input != 'm' && faultOut == false)
+  {
+     if (Serial3.available() > 0)
+      {
+        input = Serial3.read();
+      } 
+      //if (WRITE_CONFIG == ENABLED)
+      //{
+        wakeup_sleep(TOTAL_IC);
+        wakeup_idle(TOTAL_IC);
+        LTC6813_wrcfg(TOTAL_IC,BMS_IC);
+        LTC6813_wrcfgb(TOTAL_IC,BMS_IC);
+        //print_wrconfig();
+        //print_wrconfigb();
+      //}
+        
+      //if (READ_CONFIG == ENABLED)
+      //{
+        wakeup_idle(TOTAL_IC);
+        LTC6813_rdcfg(TOTAL_IC,BMS_IC);
+        
+        if(error == -1){
+          faultOut = true;
+          Serial3.println("PEC Error detected. Fault triggered.");
+          break;
+        }
+
+        //check_error(error);
+        error = LTC6813_rdcfgb(TOTAL_IC,BMS_IC); 
+        if(error == -1){
+          faultOut = true;
+          Serial3.println("PEC Error detected. Fault triggered.");
+          break;
+        }
+        //check_error(error);
+        print_rxconfig();
+        print_rxconfigb();
+        Serial3.println(ticker);
+        if(ticker==0)
+        {
+          if(selfTest()==false)
+          {
+            faultOut=true;
+            Serial3.println("Fault detected in IC. Opening shutdown circuit");
+            break;
+          }
+          ticker++;       
+        }
+        else if(ticker == 9){ticker=0;}  
+        else{ticker++;}
+            
       //}
     
       //if (MEASURE_CELL == ENABLED)
@@ -413,19 +695,63 @@ void demo_loop(uint8_t datalog_en)
         LTC6813_pollAdc();
         wakeup_idle(TOTAL_IC);
         error = LTC6813_rdcv(0, TOTAL_IC,BMS_IC);
+        if(error==-1){
+          faultOut=true;
+          Serial3.println("PEC Error detected. Fault triggered.");
+          break;
+        }
         check_error(error);
         print_cells(datalog_en);
       //}
-    
+        error = dischargeAlgo();
+        if(error==-1){
+          faultOut=true;
+          Serial3.println("Error in discharge. Fault triggered.");
+
+          break;
+        }
       //if (MEASURE_AUX == ENABLED)
       //{
-      //  wakeup_idle(TOTAL_IC);
-      //  LTC6813_adax(ADC_CONVERSION_MODE , AUX_CH_ALL);
-      //  LTC6813_pollAdc();
-      //  wakeup_idle(TOTAL_IC);
-      //  error = LTC6813_rdaux(0,TOTAL_IC,BMS_IC); // Set to read back all aux registers
-      //  check_error(error);
-      //  print_aux(datalog_en);
+        //measure cell 0 area
+        write_temp_mux(18, true);
+        write_temp_mux(8, false);
+        wakeup_idle(TOTAL_IC);
+        LTC6813_adax(ADC_CONVERSION_MODE , AUX_CH_ALL);
+        LTC6813_pollAdc();
+        wakeup_idle(TOTAL_IC);
+        error = LTC6813_rdaux(0,TOTAL_IC,BMS_IC); // Set to read back all aux registers
+        if(error==-1){
+          faultOut=true;
+          break;
+        }
+        //check_error(error);
+        print_aux(datalog_en);
+        Serial3.print("Temperature near Cell 0: ");
+        Serial3.print(resistanceToTemperature(BMS_IC[0].aux.a_codes[0]));
+        Serial3.println(" Degrees Celcius");
+
+        
+        //measure cell 18 ish area
+        write_temp_mux(18, false);
+        write_temp_mux(8, true);
+        wakeup_idle(TOTAL_IC);
+        LTC6813_adax(ADC_CONVERSION_MODE , AUX_CH_ALL);
+        LTC6813_pollAdc();
+        wakeup_idle(TOTAL_IC);
+        error = LTC6813_rdaux(0,TOTAL_IC,BMS_IC); // Set to read back all aux registers
+        if(error==-1){
+          faultOut=true;
+          break;
+        }
+        //check_error(error);
+        print_aux(datalog_en);
+        print_aux(datalog_en);
+        Serial3.print("Temperature near Cell 0: ");
+        Serial3.print(resistanceToTemperature(BMS_IC[0].aux.a_codes[0]));
+        Serial3.println(" Degrees Celcius");
+
+
+
       //}
     
       //if (MEASURE_STAT == ENABLED)
@@ -435,7 +761,11 @@ void demo_loop(uint8_t datalog_en)
         LTC6813_pollAdc();
         wakeup_idle(TOTAL_IC);
         error = LTC6813_rdstat(0,TOTAL_IC,BMS_IC); // Set to read back all aux registers
-        check_error(error);
+        if(error==-1){
+          faultOut=true;
+          break;
+        }
+       // check_error(error);
         print_stat();
       //}
     
@@ -444,11 +774,429 @@ void demo_loop(uint8_t datalog_en)
       //  print_pec_error_count();
       //} 
       
-       delay(MEASUREMENT_LOOP_TIME);
+       delay(MEASUREMENT_LOOP_TIME+500);
   } 
+  //turn everything off if loop is broken
+  wakeup_sleep(TOTAL_IC);
+  LTC6813_clear_discharge(TOTAL_IC,BMS_IC);
+  LTC6813_wrcfg(TOTAL_IC,BMS_IC);
+  LTC6813_wrcfgb(TOTAL_IC,BMS_IC);
+}
+
+int8_t dischargeAlgo(void)
+{
+  int8_t error = 0;
+
+  // all initially off in this config
+  //uint8_t discharge8_0 = 0x00; // discharge switches 8 through 0
+  //uint8_t discharge12_9 = 0xF0; // discharge switches 12 through 9
+  //uint8_t discharge16_13 = 0x0F; // discharge switches 16 through 13
+  //uint8_t discharge18_17 = 0xF0; // discharge switches 18, 17
+  // read config registers to get latest discharge bits
+  wakeup_idle(TOTAL_IC);
+  error = LTC6813_rdcfg(TOTAL_IC,BMS_IC);
+  if(error==-1)
+  {
+    Serial3.println("Error: PEC Error. Opening Shutdown Circuit");
+     return -1;
+  }
+  error = LTC6813_rdcfgb(TOTAL_IC,BMS_IC);
+  if(error==-1)
+  {
+    Serial3.println("Error: PEC Error. Opening Shutdown Circuit");
+    return -1;
+  }
+
+  //check_error(error);
+
+  uint16_t minCV[TOTAL_IC];
+  int8_t minCNum[TOTAL_IC];
+  minCV[0] = BMS_IC[0].cells.c_codes[0]; 
+  minCNum[0] = 1;
+  
+  //int8_t i = 0;
+  //int8_t j = 0;
+  for(int8_t i=0; i<TOTAL_IC;i++)
+  {
+    //finds max per segment. also checks UV and missing data
+    for(int8_t j=0; j<18; j++)
+    {
+      if(minCV[i] > BMS_IC[i].cells.c_codes[j])
+      {
+        minCV[i] = BMS_IC[i].cells.c_codes[j];
+        minCNum[i] = j+1;
+      }
+      if(BMS_IC[i].cells.c_codes[j]<=UV+tolerance)
+      {
+        //stop all discharging and exit the loop. cell is under voltage
+        wakeup_sleep(TOTAL_IC);
+        LTC6813_clear_discharge(TOTAL_IC,BMS_IC);
+        LTC6813_wrcfg(TOTAL_IC,BMS_IC);
+        LTC6813_wrcfgb(TOTAL_IC,BMS_IC);
+        Serial3.println("Error: cell voltage below threshold");
+        return -1;
+      }
+      //data not available, i think?
+      if(BMS_IC[i].cells.c_codes[j] == 65535) 
+      {
+        wakeup_sleep(TOTAL_IC);
+        LTC6813_clear_discharge(TOTAL_IC,BMS_IC);
+        LTC6813_wrcfg(TOTAL_IC,BMS_IC);
+        LTC6813_wrcfgb(TOTAL_IC,BMS_IC);
+        Serial3.println("Error: cell voltage data not available");
+        return -1;
+      }
+    }
+    //toggles discharge on or off
+    Serial3.print("Lowest voltage in IC ");
+    Serial3.print(i+1);
+    Serial3.print(": C");
+    Serial3.print(minCNum[i]);
+    Serial3.print(": ");
+    Serial3.println(minCV[i]*0.0001,4);
+    for(int8_t cell=0; cell<18; cell++)
+    {
+      //toggle for cells over thresholds
+      if(BMS_IC[i].cells.c_codes[cell]>=OV-tolerance || BMS_IC[i].cells.c_codes[cell] >= minCV[i]+2*tolerance)
+      {
+        LTC6813_set_dischargeV2((cell+1), i, BMS_IC); // configures TX data 
+        Serial3.print("Turning ON cell ");
+        Serial3.println(cell+1);
+      }
+      //turns off discharge switch
+      else if(BMS_IC[i].cells.c_codes[cell]<= minCV[i]+tolerance){
+        Serial3.print("Turning OFF cell ");
+        Serial3.println(cell+1);
+        LTC6813_clear_cell((cell+1), i, BMS_IC);
+      }
+    }
+  }
+  //Serial3.println("Done with algo");
+  
+  wakeup_sleep(TOTAL_IC);
+  wakeup_idle(TOTAL_IC);
+  LTC6813_wrcfg(TOTAL_IC,BMS_IC);
+  LTC6813_wrcfgb(TOTAL_IC,BMS_IC);
+  wakeup_idle(TOTAL_IC);
+  error = LTC6813_rdcfg(TOTAL_IC,BMS_IC);
+  if(error==-1)
+  {
+    Serial3.println("Error: PEC Error. Opening Shutdown Circuit");
+     return -1;
+  }
+  error = LTC6813_rdcfgb(TOTAL_IC,BMS_IC);
+  if(error==-1)
+  {
+    Serial3.println("Error: PEC Error. Opening Shutdown Circuit");
+    return -1;
+  }
+
+
+  return 0;
 }
 
 
+bool selfTest(void)
+{
+  int8_t error = 0;
+  //bool muxOk = true;
+  //bool adcMemOk = true;
+  bool icWorks = true;
+
+  // Mute discharge pins to do self tests
+  wakeup_sleep(TOTAL_IC);
+  LTC6813_mute(); 
+  wakeup_idle(TOTAL_IC);
+  error = LTC6813_rdcfgb(TOTAL_IC,BMS_IC);
+  if(error==-1)
+  {
+    faultOut=true;
+    return false;
+  }
+  //check_error(error);
+  //check_mute_bit();
+
+  // Run the mux decoder self test
+  LTC6813_diagn();
+  LTC6813_pollAdc();
+  error = LTC6813_rdstat(SEL_REG_B,TOTAL_IC,BMS_IC); // Set to read back register B
+  if(error==-1){
+    faultOut=true;
+    return false;
+  }
+  //check_error(error);
+  if(isMuxOK()==false){icWorks=false;}
+        
+  // Run the ADC/Memory Self Test
+  error = 0;
+  wakeup_sleep(TOTAL_IC);
+  error = LTC6813_run_cell_adc_st(CELL,TOTAL_IC,BMS_IC,ADC_CONVERSION_MODE,ADCOPT);
+  print_selftest_errors(CELL, error);
+  if(error != 0) {icWorks = false;}
+  error = 0;
+  wakeup_sleep(TOTAL_IC);
+  error = LTC6813_run_cell_adc_st(AUX,TOTAL_IC, BMS_IC,ADC_CONVERSION_MODE,ADCOPT);
+  print_selftest_errors(AUX, error);
+  if(error != 0) {icWorks = false;}
+  wakeup_sleep(TOTAL_IC);
+  error = LTC6813_run_cell_adc_st(STAT,TOTAL_IC, BMS_IC,ADC_CONVERSION_MODE,ADCOPT);
+  print_selftest_errors(STAT, error);
+  if(error != 0) {icWorks = false;}
+
+  // Run ADC Overlap self test
+  wakeup_sleep(TOTAL_IC);
+  error = (int8_t)LTC6813_run_adc_overlap(TOTAL_IC,BMS_IC);
+  //print_overlap_results(error);
+  if(error==-1){icWorks=false;}
+
+  // Run ADC Redundancy self test
+  wakeup_sleep(TOTAL_IC);
+  error = LTC6813_run_adc_redundancy_st(ADC_CONVERSION_MODE,AUX,TOTAL_IC, BMS_IC);
+  //print_digital_redundancy_errors(AUX, error);
+  if(error!=0){icWorks=false;}
+  
+  wakeup_sleep(TOTAL_IC);
+  error = LTC6813_run_adc_redundancy_st(ADC_CONVERSION_MODE,STAT,TOTAL_IC, BMS_IC);
+  //print_digital_redundancy_errors(STAT, error);
+  if(error!=0){icWorks=false;}
+  
+  // Run open wire self test for single cell detection
+  wakeup_sleep(TOTAL_IC);
+  LTC6813_run_openwire_single(TOTAL_IC, BMS_IC);
+  if(isWireOpen()==true){icWorks=false;}
+  print_open_wires();
+  
+  // i am lazy and do not know how to quickly add this to the self tests in a way that gives me a boolean, so I will not incorporate this for now
+  // Run open wire self test for multiple cell and two consecutive cells detection
+  // wakeup_sleep(TOTAL_IC);
+  // LTC6813_run_openwire_multi(TOTAL_IC, BMS_IC);  
+  
+
+  // Open wire Diagnostic for Auxiliary Measurements
+  //wakeup_sleep(TOTAL_IC);
+  //LTC6813_run_gpio_openwire(TOTAL_IC, BMS_IC);
+  //if(isWireOpen()==true){icWorks=false;}
+  //print_open_wires();      
+
+  // Unmute discharge pins
+  wakeup_sleep(TOTAL_IC);
+  LTC6813_unmute();
+  wakeup_idle(TOTAL_IC);
+  error = LTC6813_rdcfgb(TOTAL_IC,BMS_IC);
+  if(error==-1){ // pec error
+    faultOut=true;
+    return false;
+  };
+  return icWorks;
+}
+
+
+void LTC6813_clear_cell_test(int cell, uint8_t icNum, cell_asic *ic)
+{
+  if (cell==0)
+  {
+    // do nothing for now???
+  }
+  else if (cell<9)
+  {
+
+    
+    Serial3.print(" Old data: 0x");
+    Serial3_print_hex(ic[icNum].config.tx_data[4]);
+    ic[icNum].config.tx_data[4] &= ~(1 << (cell-1));
+    Serial3.print(" Modifier: 0x");
+    Serial3_print_hex(~(1 << (cell-1)));
+    Serial3.print(" New data: 0x");
+    Serial3_print_hex(ic[icNum].config.tx_data[4]);
+    
+  }
+  else if (cell < 13)
+  {
+    //ic[icNum].config.tx_data[5] &= ~(1 << (cell-9));
+    Serial3.print(" Old data: 0x");
+    Serial3_print_hex(ic[icNum].config.tx_data[5]);
+    ic[icNum].config.tx_data[5] &= ~(1 << (cell-1));
+    Serial3.print(" Modifier: 0x");
+    Serial3_print_hex(~(1 << (cell-9)));
+    Serial3.print(" New data: 0x");
+    Serial3_print_hex(ic[icNum].config.tx_data[5]);
+  }
+  else if (cell<17)
+  {
+
+    Serial3.print("Old data: 0x");
+    Serial3_print_hex(ic[icNum].config.tx_data[0]);
+    Serial3.println();
+    ic[icNum].configb.tx_data[0] &= ~(1 << (cell-9));
+    Serial3.print("Modifier: 0x");
+    Serial3.println();
+    Serial3_print_hex(~(1 << (cell-9)));
+    Serial3.print("New data: 0x");
+    Serial3_print_hex(ic[icNum].config.tx_data[0]);
+    Serial3.println();
+    
+
+  }
+  else if (cell<19)
+  {
+   // ic[icNum].configb.tx_data[1] &= ~(1 << (cell-17));
+
+    Serial3.print(" Old data: 0x");
+    Serial3_print_hex(ic[icNum].config.tx_data[1]);
+    ic[icNum].configb.tx_data[0] &= ~(1 << (cell-17));
+    Serial3.print(" Modifier: 0x");
+    Serial3_print_hex(~(1 << (cell-17)));
+    Serial3.print(" New data: 0x");
+    Serial3_print_hex(ic[icNum].config.tx_data[1]);
+  }
+  //else{
+    //break
+  //}
+  
+}
+
+void LTC6813_clear_cell(int Cell, uint8_t icNum, cell_asic *ic)
+{
+  if (Cell==0)
+  {
+    // do nothing for now???
+  }
+  else if (Cell<9)
+  {
+    ic[icNum].config.tx_data[4] &= ~(1 << (Cell-1));
+  }
+  else if (Cell < 13)
+  {
+    ic[icNum].config.tx_data[5] &= ~(1 << (Cell-9));
+  }
+  else if (Cell<17)
+  {
+    ic[icNum].configb.tx_data[0] &= ~(1 << (Cell-9));
+  }
+  else if (Cell<19)
+  {
+    ic[icNum].configb.tx_data[1] &= ~(1 << (Cell-17));
+  }
+  else{
+    //break
+  }
+  
+}
+
+void LTC6813_set_dischargeV2(int Cell, // Cell to be discharged
+                uint8_t icNum, // Number of IC to discharge on 
+                cell_asic *ic // A two dimensional array that will store the data
+                )
+ {
+   //for (int i=0; i<total_ic; i++)
+   //{
+     if (Cell==0)
+     {
+       ic[icNum].configb.tx_data[1] = ic[icNum].configb.tx_data[1] |(0x04);
+     }
+     else if (Cell<9)
+     {
+       ic[icNum].config.tx_data[4] = ic[icNum].config.tx_data[4] | (1<<(Cell-1));
+     }
+     else if (Cell < 13)
+     {
+       ic[icNum].config.tx_data[5] = ic[icNum].config.tx_data[5] | (1<<(Cell-9));
+     }
+     else if (Cell<17)
+     {
+       ic[icNum].configb.tx_data[0] = ic[icNum].configb.tx_data[0] | (1<<(Cell-9));
+     }
+     else if (Cell<19)
+     {
+       ic[icNum].configb.tx_data[1] = ic[icNum].configb.tx_data[1] | (1<<(Cell-17));
+     }
+     else
+     {
+  //     break;
+     }
+   //}
+ }
+
+
+void write_temp_mux(int8_t cell, bool off)
+{
+    uint8_t switchMapReg2[18] = {0x00, 0x00, 0x00, 0x00, 
+                                0x01, 0x02, 0x00,  0x00,  // cell 5 = 0001 in reg3, cell 6 = 0010 in reg3
+                                0x00, 0x00, 0x01, 0x02, 
+                                0x00, 0x00, 0x00,  0x00, 
+                                0x01, 0x02};
+                                
+    uint8_t switchMapReg3[18] = {0x18, 0x28, 0x48, 0x68, // cell 1 = 0001, cell 2 = 0010, cell 3 = 0100
+                                 0x08, 0x08, 0x18, 0x28, //cell 5 = 0000                      
+                                 0x48, 0x68, 0x08, 0x08,                   
+                                 0x18, 0x28, 0x48, 0x68,
+                                 0x08, 0x08};
+  // Write byte I2C Communication on the GPIO Ports(using I2C eeprom 24LC025)
+       /************************************************************
+         Ensure to set the GPIO bits to 1 in the CFG register group. 
+      *************************************************************/  
+      /*
+      uint8_t mux1_6_addr = 
+      uint8_t mux7_12_addr = 0b10011010;
+      uint8_t mux13_18_addr = 
+      */
+      //1010, 1000, 1100. ==> 10 // 8 // 9 
+      uint8_t comReg1 = 0xA0;
+      uint8_t comReg2 = switchMapReg2[(cell-1)];
+      uint8_t comReg3 = switchMapReg3[(cell-1)];
+
+      if(off==true)
+      {
+        comReg2=0x00;
+        comReg3=0x08;
+      }
+
+      if(cell<1)
+      {
+
+      }
+      else if(cell<7)
+      {
+        comReg1 = 0x88;
+        
+      }
+      else if(cell<13)
+      {
+        comReg1 = 0xA8;
+      }
+      else if(cell<19)
+      {
+        comReg1 = 0xC8;
+      }
+      for (uint8_t current_ic = 0; current_ic<TOTAL_IC;current_ic++) 
+      {
+
+        // 1001 1 (A1) (A0) (R/W). R/W is active low for write, so = 0
+        // for IC3 = 1001 1010, A1 = 0, A0 = 1
+
+        //Communication control bits and communication data bytes. Refer to the data sheet.
+        BMS_IC[current_ic].com.tx_data[0]= 0x69; // Icom Start(6) + I2C_address D0 (0xA0)
+        BMS_IC[current_ic].com.tx_data[1]= comReg1; // Fcom master NACK(8)  
+        BMS_IC[current_ic].com.tx_data[2]= comReg2; // Icom Blank (0) + first four digits of switches(0x00)
+        BMS_IC[current_ic].com.tx_data[3]= comReg3; // second four digits of switches + Fcom master NACK( 0x28)
+        BMS_IC[current_ic].com.tx_data[4]= 0x01; // Icom Blank (0) + data D2 (0x13)
+        BMS_IC[current_ic].com.tx_data[5]= 0x39; // Fcom master NACK + Stop(9) 
+      }
+      wakeup_sleep(TOTAL_IC);       
+      LTC6813_wrcomm(TOTAL_IC,BMS_IC); // write to comm register    
+      print_wrcomm(); // print transmitted data from the comm register
+
+      wakeup_idle(TOTAL_IC);
+      LTC6813_stcomm(2); // data length=2 // initiates communication between master and the I2C slave
+
+      wakeup_idle(TOTAL_IC);
+      int8_t error;
+      error = LTC6813_rdcomm(TOTAL_IC,BMS_IC); // read from comm register                        
+      check_error(error);
+      print_rxcomm(); // print received data into the comm register    
+      
+
+}
 
 void run_command(uint32_t cmd)
 {
@@ -1016,26 +1764,7 @@ void measurement_loop(uint8_t datalog_en)
   \brief Prints the main menu
   @return void
 ***********************************/
-void print_menu2(void)
-{
-  
-  Serial3.println(("List of LTC6813 Command:"));
-  //Serial3.flush();
-  //Serial3.println(("Write and Read Configuration: 1                            |Loop measurements with data-log output : 12                            |Set Discharge: 23   "));  
-  //Serial3.flush();
-  //Serial3.println(("Read Configuration: 2                                      |Clear Registers: 13                                                    |Clear Discharge: 24   "));
-  //Serial3.println(("Start Cell Voltage Conversion: 3                           |Run Mux Self Test: 14                                                  |Write and Read of PWM : 25"));
-  //Serial3.println(("Read Cell Voltages: 4                                      |Run ADC Self Test: 15                                                  |Write and  Read of S control : 26"));
-  //Serial3.println(("Start Aux Voltage Conversion: 5                            |ADC overlap Test : 16                                                  |Clear S control register : 27"));
-  //Serial3.println(("Read Aux Voltages: 6                                       |Run Digital Redundancy Test: 17                                        |SPI Communication  : 28"));
-  //Serial3.println(("Start Stat Voltage Conversion: 7                           |Open Wire Test for single cell detection: 18                           |I2C Communication Write to Slave :29"));
-  //Serial3.println(("Read Stat Voltages: 8                                      |Open Wire Test for multiple cell or two consecutive cells detection:19 |I2C Communication Read from Slave :30"));
-  //Serial3.println(("Start Combined Cell Voltage and GPIO1, GPIO2 Conversion: 9 |Open wire for Auxiliary Measurement: 20                                |Enable MUTE : 31"));
-  //Serial3.println(("Start  Cell Voltage and Sum of cells : 10                  |Print PEC Counter: 21                                                  |Disable MUTE : 32")); 
-  //Serial3.println(("Loop Measurements: 11                                      |Reset PEC Counter: 22                                                  |Set or reset the gpio pins: 33 \n "));
-  //Serial3.println(("Print 'm' for menu"));
-  //Serial3.println(("Please enter command: \n "));
-}
+
 
 void print_menu(void)
 {
@@ -1354,10 +2083,32 @@ void check_mux_fail(void)
       Serial3.print(" IC ");
       Serial3.println(ic+1,DEC);
       if (BMS_IC[ic].stat.mux_fail[0] != 0) error++;
-    
+
       if (error==0) Serial3.println(F("Mux Test: PASS \n"));
       else Serial3.println(F("Mux Test: FAIL \n"));
     }
+}
+/*!****************************************************************
+  \brief Function to check the MUX fail bit in the Status Register
+  Returns true if passes. false if fails. Rewritten version of the 
+  function above
+   @return void
+*******************************************************************/
+bool isMuxOK(void)
+{ 
+  int8_t error = 0;
+  for (int ic = 0; ic<TOTAL_IC; ic++)
+    { 
+      Serial3.print(" IC ");
+      Serial3.println(ic+1,DEC);
+      if (BMS_IC[ic].stat.mux_fail[0] != 0) error++;
+
+      if (error==0) Serial3.println(F("Mux Test: PASS \n"));
+      else Serial3.println(F("Mux Test: FAIL \n"));
+    }
+  if (error==0) return true;
+  else return false;
+        
 }
 
 /*!************************************************************
@@ -1433,6 +2184,35 @@ void print_open_wires(void)
     }
   }
   Serial3.println("\n");
+}
+
+/*!****************************************************************************
+   \brief Function to return true if there are any open wires
+   @return void
+ *****************************************************************************/
+bool isWireOpen(void)
+{
+  bool wireOpen = false;
+  for (int current_ic =0 ; current_ic < TOTAL_IC; current_ic++)
+  {
+    if (BMS_IC[current_ic].system_open_wire != 65535)
+    {
+      wireOpen=true;
+      //Serial3.print("No Opens Detected on IC ");
+      //Serial3.print(current_ic+1, DEC);
+      //Serial3.println();
+    }
+    //else
+    //{
+
+     // Serial3.print(F("There is an open wire on IC "));
+     // Serial3.print(current_ic + 1,DEC);
+     // Serial3.print(F(" Channel: "));
+     // Serial3.println(BMS_IC[current_ic].system_open_wire);
+    //}
+  }
+  return wireOpen;
+  //Serial3.println("\n");
 }
 
 /*!****************************************************************************
@@ -1764,6 +2544,7 @@ void check_error(int error)
     Serial3.println(F("A PEC error was detected in the received data"));
   }
 }
+
 
 /*!************************************************************
   \brief Function to print text on Serial3 monitor
